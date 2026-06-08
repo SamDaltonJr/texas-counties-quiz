@@ -67,6 +67,14 @@ body {
 .tct-fb { font-size:14px; font-weight:600; padding:11px 14px; border-radius:10px; margin-top:14px; }
 .tct-fb.correct { background:#22352b; color:#9ad6b3; border:1px solid #355f48; }
 .tct-fb.wrong { background:#34201d; color:#eaa99d; border:1px solid #5e342d; }
+.tct-recall { display:flex; gap:8px; margin-top:12px; }
+.tct-input { flex:1 1 auto; min-width:0; border:1px solid var(--line); background:#1C1812; color:#ECE3D6; font-family:inherit; font-size:16px; font-weight:600; padding:12px 14px; border-radius:10px; outline:none; transition:.14s; }
+.tct-input::placeholder { color:var(--faint); font-weight:500; }
+.tct-input:focus { border-color:var(--accent); }
+.tct-input:disabled { opacity:.75; }
+.tct-submit { flex:0 0 auto; border:1px solid var(--accent); background:var(--accent); color:#1c130a; font-family:inherit; font-size:14px; font-weight:700; padding:0 18px; border-radius:10px; cursor:pointer; transition:.14s; }
+.tct-submit:hover:not(:disabled) { filter:brightness(1.08); }
+.tct-submit:disabled { opacity:.5; cursor:default; }
 .tct-stats { display:flex; gap:10px; }
 .tct-stat { flex:1; background:#1C1812; border:1px solid #2a241c; border-radius:11px; padding:11px 12px; }
 .tct-stat .v { font-family:'Fraunces',serif; font-size:24px; font-weight:600; }
@@ -177,9 +185,9 @@ function record(fips, correct){
 function fillFor(c){
   if(S.feedback){
     if(S.mode==="find"){ if(S.feedback.clicked===c.fips) return S.feedback.status==="correct"?C_COR:C_WRONG; if(S.reveal===c.fips) return C_ACCENT; }
-    if(S.mode==="identify" && S.target && c.fips===S.target.fips) return S.feedback.status==="correct"?C_COR:C_WRONG;
+    if((S.mode==="identify"||S.mode==="recall") && S.target && c.fips===S.target.fips) return S.feedback.status==="correct"?C_COR:C_WRONG;
   }
-  if(S.mode==="identify" && S.target && c.fips===S.target.fips && !S.feedback) return C_ACCENT;
+  if((S.mode==="identify"||S.mode==="recall") && S.target && c.fips===S.target.fips && !S.feedback) return C_ACCENT;
   if(S.mode==="explore"){
     const base = REGION_COLORS[c.region];
     if(!inScope(c)) return C_DIM;
@@ -196,7 +204,7 @@ function fillFor(c){
 function updateCounty(c){
   const el = els[c.fips]; if(!el) return;
   const scoped = inScope(c);
-  const isTarget = S.mode==="identify" && S.target && c.fips===S.target.fips;
+  const isTarget = (S.mode==="identify"||S.mode==="recall") && S.target && c.fips===S.target.fips;
   el.setAttribute("fill", fillFor(c));
   el.setAttribute("stroke", (isTarget || S.hovered===c.fips) ? "#F4D9BE" : "#15110D");
   el.setAttribute("stroke-width", isTarget ? 1.6 : 0.5);
@@ -278,12 +286,35 @@ function renderPanel(){
     });
     html += '</div></div>';
     html += statsCard(acc) + legendCard();
+  } else if(S.mode==="recall" && S.target){
+    html += '<div class="tct-card"><div class="tct-eyebrow">Type the highlighted county</div>';
+    html += '<div class="tct-recall">';
+    html += '<input id="typeInput" class="tct-input" type="text" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="County name…"'+(S.feedback?' disabled value="'+esc(S.feedback.typed)+'"':'')+'>';
+    html += '<button class="tct-submit" id="typeSubmit"'+(S.feedback?' disabled':'')+'>Check</button>';
+    html += '</div>';
+    if(S.feedback){
+      html += '<div class="tct-fb '+S.feedback.status+'">';
+      html += S.feedback.status==="correct" ? ('Correct &mdash; <b>'+S.target.name+'</b>, '+S.target.region+'.')
+        : ('You typed “'+esc(S.feedback.typed)+'”. It was <b>'+S.target.name+'</b>, '+S.target.region+'.');
+      html += '</div>';
+    } else {
+      html += '<p class="tct-explain" style="margin-top:10px">Capitalization, spaces and punctuation are ignored. Press <b>Enter</b> to check.</p>';
+    }
+    html += '</div>';
+    html += statsCard(acc) + legendCard();
   }
   html += '<button class="tct-reset" id="resetBtn">&#8635; Reset progress</button>';
   panelEl.innerHTML = html;
 
   const ob = document.getElementById("optBox");
   if(ob) [...ob.children].forEach(b=> b.onclick = ()=> onOption(b.dataset.name));
+  const ti = document.getElementById("typeInput");
+  if(ti){
+    if(!S.feedback) ti.focus();
+    ti.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); onType(ti.value); } });
+  }
+  const ts = document.getElementById("typeSubmit");
+  if(ts) ts.onclick = ()=>{ const el=document.getElementById("typeInput"); if(el) onType(el.value); };
   const rb = document.getElementById("resetBtn");
   if(rb) rb.onclick = ()=>{ if(confirm("Reset all mastery progress?")){ S.stats={}; S.session={correct:0,total:0}; save(); updateMap(); renderLabels(); renderChips(); renderProgress(); renderPanel(); } };
 }
@@ -310,6 +341,18 @@ function onOption(name){
   S.feedback = {status: correct?"correct":"wrong", picked:name};
   updateMap(); renderLabels(); renderPanel(); renderChips(); renderProgress();
   clearTimeout(T); T = setTimeout(advance, correct?750:1500);
+}
+function norm(s){ return (s||"").toLowerCase().replace(/[^a-z0-9]/g,""); }
+function esc(s){ return (s||"").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function onType(val){
+  if(S.feedback || !S.target) return;
+  if(!val || !val.trim()) return;
+  const correct = norm(val)===norm(S.target.name);
+  record(S.target.fips, correct);
+  S.feedback = {status: correct?"correct":"wrong", typed:val};
+  S.reveal = S.target.fips;
+  updateMap(); renderLabels(); renderPanel(); renderChips(); renderProgress();
+  clearTimeout(T); T = setTimeout(advance, correct?900:1900);
 }
 function advance(){
   clearTimeout(T); S.feedback=null; S.reveal=null;
@@ -353,7 +396,7 @@ function build(){
   progNum = document.getElementById("progNum");
   progBar = document.getElementById("progBar");
 
-  [["explore","Explore"],["find","Find on map"],["identify","Name it"]].forEach(([m,label])=>{
+  [["explore","Explore"],["find","Find on map"],["identify","Name it"],["recall","Type it"]].forEach(([m,label])=>{
     const b=document.createElement("button"); b.className="tct-mode"; b.dataset.mode=m; b.textContent=label; b.onclick=()=>setMode(m); modesEl.appendChild(b);
   });
 
