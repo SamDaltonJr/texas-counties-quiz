@@ -45,6 +45,10 @@ body {
 .tct-chip.on { background:var(--accent); border-color:var(--accent); color:#1c130a; }
 .tct-chip .dot { width:8px; height:8px; border-radius:50%; }
 .tct-chip .ct { font-family:'DM Mono',monospace; font-size:10.5px; opacity:.8; }
+.tct-chip .add, .tct-chip .rm { display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; border-radius:50%; font-size:12px; font-weight:800; line-height:1; flex:0 0 auto; margin-left:-2px; }
+.tct-chip .add { background:var(--accent); color:#1c130a; }
+.tct-chip:hover .add { filter:brightness(1.12); }
+.tct-chip.on .rm { background:rgba(28,19,10,.22); color:#1c130a; font-size:10px; }
 .tct-stage { display:flex; gap:18px; align-items:stretch; min-width:0; }
 .tct-mapwrap { flex:1 1 60%; min-width:0; background:#1C1812; border:1px solid #2a241c; border-radius:13px; padding:10px; }
 .tct-mapwrap svg { width:100%; height:auto; max-width:100%; display:block; }
@@ -151,13 +155,13 @@ const isTouch = (window.matchMedia && window.matchMedia("(hover:none)").matches)
 function lighten(hex, amt){ const n=parseInt(hex.slice(1),16); let r=(n>>16)&255,g=(n>>8)&255,b=n&255; r=Math.round(r+(255-r)*amt); g=Math.round(g+(255-g)*amt); b=Math.round(b+(255-b)*amt); return "#"+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1); }
 function shuffle(a){ const x=a.slice(); for(let i=x.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [x[i],x[j]]=[x[j],x[i]]; } return x; }
 
-const S = { mode:"explore", region:"All", stats:{}, target:null, options:[], feedback:null, reveal:null, session:{correct:0,total:0}, hovered:null, pinned:null };
+const S = { mode:"explore", regions:[], stats:{}, target:null, options:[], feedback:null, reveal:null, session:{correct:0,total:0}, hovered:null, pinned:null };
 let T = null;
 const els = {};
 let labelG, panelEl, chipsEl, modesEl, progNum, progBar;
 
-function inScope(c){ return S.region==="All" || c.region===S.region; }
-function poolFor(reg){ return reg==="All" ? counties : counties.filter(c=>c.region===reg); }
+function inScope(c){ return S.regions.length===0 || S.regions.includes(c.region); }
+function poolFor(){ return S.regions.length===0 ? counties : counties.filter(c=>S.regions.includes(c.region)); }
 function masteredCount(){ let n=0; for(const f in S.stats) if((S.stats[f].streak||0)>=MASTER_STREAK) n++; return n; }
 function isMastered(f){ const s=S.stats[f]; return s && (s.streak||0)>=MASTER_STREAK; }
 
@@ -239,10 +243,17 @@ function renderChips(){
   const prog = {}; REGIONS.forEach(r=>prog[r]={t:0,m:0});
   counties.forEach(c=>{ prog[c.region].t++; if(isMastered(c.fips)) prog[c.region].m++; });
   chipsEl.innerHTML = "";
+  const hasSel = S.regions.length>0;
   const mk = (reg, label, dot, count) => {
     const b = document.createElement("button");
-    b.className = "tct-chip" + (S.region===reg?" on":"");
-    b.innerHTML = (dot?'<span class="dot" style="background:'+dot+'"></span>':'') + label + ' <span class="ct">'+count+'</span>';
+    const isAll = reg==="All";
+    const on = isAll ? !hasSel : S.regions.includes(reg);
+    b.className = "tct-chip" + (on?" on":"");
+    const add = (!isAll && hasSel && !on) ? '<span class="add">+</span>' : '';
+    const rm = (!isAll && on) ? '<span class="rm">&#10005;</span>' : '';
+    b.innerHTML = add + (dot?'<span class="dot" style="background:'+dot+'"></span>':'') + label + ' <span class="ct">'+count+'</span>' + rm;
+    b.title = isAll ? 'Show all 254 counties'
+      : (on ? 'Remove '+label+' from view' : (hasSel ? 'Add '+label+' to compare borders' : 'Focus on '+label));
     b.onclick = () => setRegion(reg);
     chipsEl.appendChild(b);
   };
@@ -260,8 +271,8 @@ function renderPanel(){
     if(info) html += '<small style="color:'+REGION_COLORS[info.region]+'">'+info.region+'</small>';
     html += '</div>';
     if(!info) html += '<p class="tct-explain">'+(isTouch
-      ? 'Tap any county to see its name; tap again to clear it. Pick a region above to isolate a chunk, then switch to <b>Find on map</b> to test yourself.'
-      : 'Hover any county to see its name. Click to pin it. Pick a region above to isolate a chunk, then switch to <b>Find on map</b> to test yourself.')+'</p>';
+      ? 'Tap any county to see its name; tap again to clear it. Pick a region above to isolate a chunk — once one\'s selected, tap <b>+</b> on a neighbor to add it and study how they border each other.'
+      : 'Hover any county to see its name. Click to pin it. Pick a region above to isolate a chunk — once one\'s selected, click <b>+</b> on a neighbor to add it and study how they border each other.')+'</p>';
     if(S.pinned && byFips[S.pinned]) html += '<div class="tct-pin">pinned: '+byFips[S.pinned].name+'</div>';
     html += '</div>';
     html += '<div class="tct-card"><div class="tct-eyebrow" style="margin-bottom:9px">The 8 study regions</div><div class="tct-legend">';
@@ -269,7 +280,7 @@ function renderPanel(){
     html += '</div></div>';
   } else if(S.mode==="find" && S.target){
     html += '<div class="tct-card"><div class="tct-eyebrow">Find on map</div>';
-    html += '<div class="tct-prompt">'+S.target.name+'<small>Click this county'+(S.region==="All"?" anywhere in Texas":"")+'</small></div>';
+    html += '<div class="tct-prompt">'+S.target.name+'<small>Click this county'+(S.regions.length===0?" anywhere in Texas":"")+'</small></div>';
     if(S.feedback){
       html += '<div class="tct-fb '+S.feedback.status+'">';
       html += S.feedback.status==="correct" ? ('Correct — <b>'+S.target.name+'</b>, '+S.target.region+'.')
@@ -325,7 +336,7 @@ function onCounty(c){
   if(S.mode==="explore"){ S.pinned = S.pinned===c.fips ? null : c.fips; updateCounty(c); renderLabels(); renderPanel(); return; }
   if(S.mode==="find"){
     if(S.feedback || !S.target) return;
-    if(S.region!=="All" && c.region!==S.region) return;
+    if(!inScope(c)) return;
     const correct = c.fips===S.target.fips;
     record(S.target.fips, correct);
     S.feedback = {status: correct?"correct":"wrong", clicked:c.fips};
@@ -357,7 +368,7 @@ function onType(val){
 function advance(){
   clearTimeout(T); S.feedback=null; S.reveal=null;
   if(S.mode==="explore"){ S.target=null; updateMap(); renderLabels(); renderPanel(); return; }
-  const pool = poolFor(S.region);
+  const pool = poolFor();
   S.target = pickTarget(pool, S.target && S.target.fips);
   if(S.mode==="identify") S.options = makeOptions(S.target);
   updateMap(); renderLabels(); renderPanel();
@@ -365,12 +376,15 @@ function advance(){
 function setMode(m){
   clearTimeout(T); S.mode=m; S.feedback=null; S.reveal=null; S.hovered=null;
   if(m==="explore"){ S.target=null; }
-  else { const pool=poolFor(S.region); S.target=pickTarget(pool,null); if(m==="identify") S.options=makeOptions(S.target); }
+  else { const pool=poolFor(); S.target=pickTarget(pool,null); if(m==="identify") S.options=makeOptions(S.target); }
   renderModes(); updateMap(); renderLabels(); renderPanel();
 }
 function setRegion(r){
-  clearTimeout(T); S.region=r; S.feedback=null; S.reveal=null;
-  if(S.mode!=="explore"){ const pool=poolFor(r); S.target=pickTarget(pool,null); if(S.mode==="identify") S.options=makeOptions(S.target); }
+  clearTimeout(T);
+  if(r==="All"){ S.regions=[]; }
+  else { const i=S.regions.indexOf(r); if(i>=0) S.regions.splice(i,1); else S.regions.push(r); }
+  S.feedback=null; S.reveal=null;
+  if(S.mode!=="explore"){ const pool=poolFor(); S.target=pickTarget(pool,null); if(S.mode==="identify") S.options=makeOptions(S.target); }
   renderChips(); updateMap(); renderLabels(); renderPanel();
 }
 
