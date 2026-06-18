@@ -90,6 +90,14 @@ body {
 .tct-legend span { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted); font-family:'DM Mono',monospace; }
 .tct-legend i { width:11px; height:11px; border-radius:3px; display:inline-block; }
 .tct-pin { font-family:'DM Mono',monospace; font-size:11px; color:var(--faint); margin-top:10px; }
+.tct-hintbtns { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+.tct-hintbtn { display:inline-flex; align-items:center; gap:7px; background:#1C1812; border:1px dashed #4a3f30; color:var(--accent); font-family:inherit; font-size:13px; font-weight:700; padding:9px 14px; border-radius:9px; cursor:pointer; transition:.15s; }
+.tct-hintbtn:hover { border-color:var(--accent); background:#221d16; }
+.tct-hintbtn.strong { background:var(--accent); border-style:solid; border-color:var(--accent); color:#1c130a; }
+.tct-hintbtn.strong:hover { filter:brightness(1.08); background:var(--accent); }
+.tct-hint { font-size:13.5px; color:#cfe6f1; background:#15252b; border:1px solid #2f4a54; border-radius:9px; padding:9px 12px; margin-top:9px; animation:rise .3s ease both; }
+.tct-hint b { color:#fff; font-weight:700; }
+.tct-hint .dir { color:#8fb6c4; font-family:'DM Mono',monospace; font-size:11px; }
 .tct-reset { margin-top:auto; align-self:flex-start; display:flex; align-items:center; gap:7px; background:transparent; border:1px solid var(--line); color:var(--muted); font-family:inherit; font-size:12px; font-weight:600; padding:8px 13px; border-radius:9px; cursor:pointer; transition:.15s; }
 .tct-reset:hover { color:#ECE3D6; border-color:#5a4030; }
 @keyframes rise { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
@@ -147,7 +155,7 @@ const byFips = {}; counties.forEach(c => byFips[c.fips] = c);
 const REGIONS = ["Panhandle","South Plains & West","Trans-Pecos & Far West","North Texas (DFW)","East Texas (Piney Woods)","Central & Hill Country","Gulf Coast","South Texas"];
 const REGION_COLORS = {"Panhandle":"#C97B4A","South Plains & West":"#D2A24B","Trans-Pecos & Far West":"#A8693E","North Texas (DFW)":"#7FA178","East Texas (Piney Woods)":"#5E8C6A","Central & Hill Country":"#CC8B63","Gulf Coast":"#6E9DA6","South Texas":"#BE7468"};
 const SHORT = {"Panhandle":"Panhandle","South Plains & West":"South Plains","Trans-Pecos & Far West":"Trans-Pecos","North Texas (DFW)":"North / DFW","East Texas (Piney Woods)":"East / Piney","Central & Hill Country":"Hill Country","Gulf Coast":"Gulf Coast","South Texas":"South Texas"};
-const C_UNSEEN="#2B261F", C_LEARN="#9A6A38", C_MASTER="#5E8C6A", C_DIM="#1B1712", C_ACCENT="#E08544", C_COR="#74B894", C_WRONG="#CB5A48";
+const C_UNSEEN="#2B261F", C_LEARN="#9A6A38", C_MASTER="#5E8C6A", C_DIM="#1B1712", C_ACCENT="#E08544", C_COR="#74B894", C_WRONG="#CB5A48", C_HINT="#3E7CA6";
 const MASTER_STREAK = 3, KEY = "tx-county-stats-v1";
 const SVGNS = "http://www.w3.org/2000/svg";
 const isTouch = (window.matchMedia && window.matchMedia("(hover:none)").matches) || ("ontouchstart" in window);
@@ -155,7 +163,7 @@ const isTouch = (window.matchMedia && window.matchMedia("(hover:none)").matches)
 function lighten(hex, amt){ const n=parseInt(hex.slice(1),16); let r=(n>>16)&255,g=(n>>8)&255,b=n&255; r=Math.round(r+(255-r)*amt); g=Math.round(g+(255-g)*amt); b=Math.round(b+(255-b)*amt); return "#"+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1); }
 function shuffle(a){ const x=a.slice(); for(let i=x.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [x[i],x[j]]=[x[j],x[i]]; } return x; }
 
-const S = { mode:"explore", regions:[], stats:{}, target:null, options:[], feedback:null, reveal:null, session:{correct:0,total:0}, hovered:null, pinned:null };
+const S = { mode:"explore", regions:[], stats:{}, target:null, options:[], feedback:null, reveal:null, session:{correct:0,total:0}, hovered:null, pinned:null, hints:[], hintLoc:false };
 let T = null;
 const els = {};
 let labelG, panelEl, chipsEl, modesEl, progNum, progBar;
@@ -199,6 +207,7 @@ function fillFor(c){
     return base;
   }
   if(!inScope(c)) return C_DIM;
+  if(S.mode==="find" && !S.feedback && S.hintLoc && S.hints.includes(c.fips)) return S.hovered===c.fips ? lighten(C_HINT,0.22) : C_HINT;
   const s = S.stats[c.fips];
   if(!s || s.c+s.w===0) return S.hovered===c.fips ? lighten(C_UNSEEN,0.5) : C_UNSEEN;
   const m = (s.streak||0)>=MASTER_STREAK ? C_MASTER : C_LEARN;
@@ -209,9 +218,10 @@ function updateCounty(c){
   const el = els[c.fips]; if(!el) return;
   const scoped = inScope(c);
   const isTarget = (S.mode==="identify"||S.mode==="recall") && S.target && c.fips===S.target.fips;
+  const isHint = S.mode==="find" && !S.feedback && S.hintLoc && S.hints.includes(c.fips);
   el.setAttribute("fill", fillFor(c));
-  el.setAttribute("stroke", (isTarget || S.hovered===c.fips) ? "#F4D9BE" : "#15110D");
-  el.setAttribute("stroke-width", isTarget ? 1.6 : 0.5);
+  el.setAttribute("stroke", (isTarget || S.hovered===c.fips) ? "#F4D9BE" : isHint ? "#A6D4EA" : "#15110D");
+  el.setAttribute("stroke-width", isTarget ? 1.6 : isHint ? 1.2 : 0.5);
   el.classList.toggle("dim", !scoped);
   const clickable = S.mode==="explore" || (S.mode==="find" && scoped && !S.feedback);
   el.classList.toggle("clickable", clickable);
@@ -222,12 +232,13 @@ function updateMap(){ counties.forEach(updateCounty); }
 function labelList(){
   const out = [];
   if(S.mode==="explore"){ if(S.hovered) out.push(S.hovered); if(S.pinned && S.pinned!==S.hovered) out.push(S.pinned); }
+  if(S.mode==="find" && !S.feedback && S.hintLoc) S.hints.forEach(f=>out.push(f));
   if(S.feedback && S.target){ out.push(S.target.fips); if(S.mode==="find" && S.feedback.clicked && S.feedback.clicked!==S.target.fips) out.push(S.feedback.clicked); }
   return [...new Set(out)];
 }
 function renderLabels(){
   while(labelG.firstChild) labelG.removeChild(labelG.firstChild);
-  if(!(S.mode==="explore" || S.feedback)) return;
+  if(!(S.mode==="explore" || S.feedback || (S.mode==="find" && S.hintLoc && S.hints.length))) return;
   labelList().forEach(f=>{
     const c = byFips[f]; if(!c) return;
     const t = document.createElementNS(SVGNS,"text");
@@ -286,6 +297,15 @@ function renderPanel(){
       html += S.feedback.status==="correct" ? ('Correct — <b>'+S.target.name+'</b>, '+S.target.region+'.')
         : ('That was '+(byFips[S.feedback.clicked]?byFips[S.feedback.clicked].name:"?")+'. <b>'+S.target.name+'</b> is highlighted.');
       html += '</div>';
+    } else {
+      const nb = neighborsOf(S.target);
+      S.hints.forEach(f=>{ const n=byFips[f]; if(n) html += '<div class="tct-hint">Borders <b>'+esc(n.name)+'</b> <span class="dir">to the '+compass(S.target,n)+(S.hintLoc?' · on map':'')+'</span></div>'; });
+      let btns = '';
+      if(S.hints.length < Math.min(3, nb.length))
+        btns += '<button class="tct-hintbtn" id="hintBtn">&#128161; '+(S.hints.length ? 'Reveal another neighbor' : 'Need a hint?')+'</button>';
+      if(S.hints.length && !S.hintLoc)
+        btns += '<button class="tct-hintbtn strong" id="hintLocBtn">&#128205; Show '+(S.hints.length>1?'them':'it')+' on the map</button>';
+      if(btns) html += '<div class="tct-hintbtns">'+btns+'</div>';
     }
     html += '</div>';
     html += statsCard(acc) + legendCard();
@@ -326,6 +346,10 @@ function renderPanel(){
   }
   const ts = document.getElementById("typeSubmit");
   if(ts) ts.onclick = ()=>{ const el=document.getElementById("typeInput"); if(el) onType(el.value); };
+  const hb = document.getElementById("hintBtn");
+  if(hb) hb.onclick = onHint;
+  const hlb = document.getElementById("hintLocBtn");
+  if(hlb) hlb.onclick = onHintLoc;
   const rb = document.getElementById("resetBtn");
   if(rb) rb.onclick = ()=>{ if(confirm("Reset all mastery progress?")){ S.stats={}; S.session={correct:0,total:0}; save(); updateMap(); renderLabels(); renderChips(); renderProgress(); renderPanel(); } };
 }
@@ -353,6 +377,26 @@ function onOption(name){
   updateMap(); renderLabels(); renderPanel(); renderChips(); renderProgress();
   clearTimeout(T); T = setTimeout(advance, correct?750:1500);
 }
+function neighborsOf(t){
+  return poolFor().filter(c=>c.fips!==t.fips)
+    .map(c=>({c,d:(c.cx-t.cx)*(c.cx-t.cx)+(c.cy-t.cy)*(c.cy-t.cy)}))
+    .sort((a,b)=>a.d-b.d).map(o=>o.c);
+}
+function compass(t,n){
+  const ang=(Math.atan2(n.cy-t.cy, n.cx-t.cx)*180/Math.PI+360)%360;
+  return ["east","southeast","south","southwest","west","northwest","north","northeast"][Math.round(ang/45)%8];
+}
+function onHint(){
+  if(S.mode!=="find" || !S.target || S.feedback) return;
+  const nb = neighborsOf(S.target);
+  for(const c of nb){ if(!S.hints.includes(c.fips)){ S.hints.push(c.fips); break; } }
+  updateMap(); renderLabels(); renderPanel();
+}
+function onHintLoc(){
+  if(S.mode!=="find" || !S.target || S.feedback || !S.hints.length) return;
+  S.hintLoc = true;
+  updateMap(); renderLabels(); renderPanel();
+}
 function norm(s){ return (s||"").toLowerCase().replace(/[^a-z0-9]/g,""); }
 function esc(s){ return (s||"").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function onType(val){
@@ -366,7 +410,7 @@ function onType(val){
   clearTimeout(T); T = setTimeout(advance, correct?900:1900);
 }
 function advance(){
-  clearTimeout(T); S.feedback=null; S.reveal=null;
+  clearTimeout(T); S.feedback=null; S.reveal=null; S.hints=[]; S.hintLoc=false;
   if(S.mode==="explore"){ S.target=null; updateMap(); renderLabels(); renderPanel(); return; }
   const pool = poolFor();
   S.target = pickTarget(pool, S.target && S.target.fips);
@@ -374,7 +418,7 @@ function advance(){
   updateMap(); renderLabels(); renderPanel();
 }
 function setMode(m){
-  clearTimeout(T); S.mode=m; S.feedback=null; S.reveal=null; S.hovered=null;
+  clearTimeout(T); S.mode=m; S.feedback=null; S.reveal=null; S.hovered=null; S.hints=[]; S.hintLoc=false;
   if(m==="explore"){ S.target=null; }
   else { const pool=poolFor(); S.target=pickTarget(pool,null); if(m==="identify") S.options=makeOptions(S.target); }
   renderModes(); updateMap(); renderLabels(); renderPanel();
@@ -383,7 +427,7 @@ function setRegion(r){
   clearTimeout(T);
   if(r==="All"){ S.regions=[]; }
   else { const i=S.regions.indexOf(r); if(i>=0) S.regions.splice(i,1); else S.regions.push(r); }
-  S.feedback=null; S.reveal=null;
+  S.feedback=null; S.reveal=null; S.hints=[]; S.hintLoc=false;
   if(S.mode!=="explore"){ const pool=poolFor(); S.target=pickTarget(pool,null); if(S.mode==="identify") S.options=makeOptions(S.target); }
   renderChips(); updateMap(); renderLabels(); renderPanel();
 }
